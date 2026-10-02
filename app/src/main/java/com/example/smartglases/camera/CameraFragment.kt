@@ -27,7 +27,6 @@ import com.jiangdg.ausbc.widget.AspectRatioTextureView
 import com.jiangdg.ausbc.widget.IAspectRatio
 
 import java.io.ByteArrayOutputStream
-import java.util.ArrayDeque
 import java.util.concurrent.Executors
 
 
@@ -71,12 +70,10 @@ class CameraFragment : AusbcCameraFragment() {
 
     // =========================================================
     // INTERVAL INFERENCE
-    //
-    // Kamera sekitar 15 FPS
-    //
-    // 10 frame ≈ 0,67 detik
     // =========================================================
 
+    // C270 sekitar 15 FPS
+    // YOLO dijalankan setiap 10 frame
     private val inferenceFrameInterval = 10
 
 
@@ -89,7 +86,6 @@ class CameraFragment : AusbcCameraFragment() {
 
     // =========================================================
     // ROI
-    //
     // Frame kamera = 640 x 480
     // =========================================================
 
@@ -97,18 +93,6 @@ class CameraFragment : AusbcCameraFragment() {
     private val roiTop = 80f
     private val roiRight = 440f
     private val roiBottom = 480f
-
-
-    // =========================================================
-    // SMOOTHING JARAK
-    //
-    // Simpan 3 hasil jarak terakhir
-    // =========================================================
-
-    private val distanceHistory =
-        ArrayDeque<Float>()
-
-    private val distanceHistorySize = 3
 
 
     // =========================================================
@@ -179,7 +163,7 @@ class CameraFragment : AusbcCameraFragment() {
 
                 Log.d(
                     "SMARTGLASSES_AI",
-                    "Mengirim Bitmap ke YOLO: " +
+                    "Bitmap YOLO: " +
                             "${bitmap.width}x${bitmap.height}"
                 )
 
@@ -220,9 +204,9 @@ class CameraFragment : AusbcCameraFragment() {
 
                     try {
 
-                        // =========================================
+                        // =================================================
                         // INFERENCE
-                        // =========================================
+                        // =================================================
 
                         val detections =
                             detector.detect(bitmap)
@@ -230,14 +214,15 @@ class CameraFragment : AusbcCameraFragment() {
 
                         Log.d(
                             "SMARTGLASSES_AI",
-                            "Jumlah deteksi: " +
+                            "Jumlah semua deteksi: " +
                                     detections.size
                         )
 
-                        // =========================================================
-// PERSON
-// classId 0 = person
-// =========================================================
+
+                        // =================================================
+                        // PERSON
+                        // classId 0 = person
+                        // =================================================
 
                         val personDetections =
                             detections.filter { detection ->
@@ -247,10 +232,23 @@ class CameraFragment : AusbcCameraFragment() {
                                         confidenceThreshold
                             }
 
-                        // =========================================================
-// KALIBRASI PERSON
-// Hanya person dalam ROI
-// Pilih confidence tertinggi
+
+                        Log.d(
+                            "SMARTGLASSES_PERSON",
+                            "Jumlah person: " +
+                                    personDetections.size
+                        )
+
+
+                        // =================================================
+                        // KALIBRASI PERSON
+                        //
+                        // Hanya person yang berada dalam ROI
+                        // Pilih confidence tertinggi
+                        // =================================================
+
+// =========================================================
+// PERSON DALAM ROI
 // =========================================================
 
                         val calibrationPerson =
@@ -263,429 +261,126 @@ class CameraFragment : AusbcCameraFragment() {
                                 }
 
 
+// =========================================================
+// PERSON TERDETEKSI
+// =========================================================
+
                         if (calibrationPerson != null) {
 
                             val detection =
                                 calibrationPerson
 
-
+                            // Lebar bounding box person
                             val boxWidth =
                                 detection.x2 - detection.x1
 
-
-                            val boxHeight =
-                                detection.y2 - detection.y1
-
-
-                            val centerX =
-                                (
-                                        detection.x1 +
-                                                detection.x2
-                                        ) / 2f
+                            // Hitung jarak menggunakan
+                            // hasil kalibrasi person yang sudah ada
+                            val distance =
+                                estimatePersonDistance(boxWidth)
 
 
-                            val centerY =
-                                (
-                                        detection.y1 +
-                                                detection.y2
-                                        ) / 2f
-
+                            // =====================================================
+                            // LOG JARAK
+                            // =====================================================
 
                             Log.d(
-                                "SMARTGLASSES_PERSON_CALIBRATION",
+                                "SMARTGLASSES_DISTANCE",
                                 String.format(
-                                    "Person: " +
-                                            "confidence=%.2f, " +
-                                            "x1=%.2f, " +
-                                            "y1=%.2f, " +
-                                            "x2=%.2f, " +
-                                            "y2=%.2f, " +
-                                            "width=%.2f, " +
-                                            "height=%.2f, " +
-                                            "center=(%.2f, %.2f)",
-                                    detection.confidence,
-                                    detection.x1,
-                                    detection.y1,
-                                    detection.x2,
-                                    detection.y2,
+                                    "Person dalam ROI: " +
+                                            "classId=%d, " +
+                                            "width=%.2f px, " +
+                                            "distance=%.2f meter",
+                                    detection.classId,
                                     boxWidth,
-                                    boxHeight,
-                                    centerX,
-                                    centerY
+                                    distance
                                 )
                             )
-                        }
 
-// =========================================================
-// BICYCLE
-// classId 1 = bicycle
-// =========================================================
 
-                        val bicycleDetections =
-                            detections.filter { detection ->
+                            // =====================================================
+                            // TTS
+                            // =====================================================
 
-                                detection.classId == 1 &&
-                                        detection.confidence >=
-                                        confidenceThreshold
+                            requireActivity().runOnUiThread {
+
+                                try {
+
+                                    (
+                                            requireActivity()
+                                                    as MainActivity
+                                            ).speakObstacle(
+                                            detection.classId,
+                                            distance
+                                        )
+
+                                } catch (e: Exception) {
+
+                                    Log.e(
+                                        "SMARTGLASSES_TTS",
+                                        "Gagal menjalankan TTS",
+                                        e
+                                    )
+                                }
                             }
 
+                        } else {
 
-// =========================================================
-// SEMUA OBJECT YANG AKAN DITAMPILKAN
-//
-// person + bicycle
-// =========================================================
-
-                        val objectDetections =
-                            detections.filter { detection ->
-
-                                (
-                                        detection.classId == 0 ||
-                                                detection.classId == 1
-                                        ) &&
-                                        detection.confidence >=
-                                        confidenceThreshold
-                            }
-
-                        Log.d(
-                            "SMARTGLASSES_OBJECT",
-                            "Person=${personDetections.size}, " +
-                                    "Bicycle=${bicycleDetections.size}"
-                        )
-
-                        Log.d(
-                            "SMARTGLASSES_PERSON",
-                            "Jumlah person: " +
-                                    personDetections.size
-                        )
-
-                        Log.d(
-                            "SMARTGLASSES_BICYCLE",
-                            "Jumlah bicycle: ${bicycleDetections.size}"
-                        )
-
-                        for (detection in bicycleDetections) {
-
-                            val width =
-                                detection.x2 - detection.x1
-
-                            val height =
-                                detection.y2 - detection.y1
-
-                            val centerX =
-                                (
-                                        detection.x1 +
-                                                detection.x2
-                                        ) / 2f
-
-                            val centerY =
-                                (
-                                        detection.y1 +
-                                                detection.y2
-                                        ) / 2f
-
+                            // =====================================================
+                            // TIDAK ADA PERSON DALAM ROI
+                            // =====================================================
 
                             Log.d(
-                                "SMARTGLASSES_BICYCLE_CALIBRATION",
-                                String.format(
-                                    "Bicycle: " +
-                                            "confidence=%.2f, " +
-                                            "x1=%.2f, " +
-                                            "y1=%.2f, " +
-                                            "x2=%.2f, " +
-                                            "y2=%.2f, " +
-                                            "width=%.2f, " +
-                                            "height=%.2f, " +
-                                            "center=(%.2f, %.2f)",
-                                    detection.confidence,
-                                    detection.x1,
-                                    detection.y1,
-                                    detection.x2,
-                                    detection.y2,
-                                    width,
-                                    height,
-                                    centerX,
-                                    centerY
-                                )
+                                "SMARTGLASSES_DISTANCE",
+                                "Tidak ada person dalam ROI"
                             )
+
+
+                            // Reset status TTS
+                            requireActivity().runOnUiThread {
+
+                                try {
+
+                                    (
+                                            requireActivity()
+                                                    as MainActivity
+                                            ).resetObstacleAnnouncement()
+
+                                } catch (e: Exception) {
+
+                                    Log.e(
+                                        "SMARTGLASSES_TTS",
+                                        "Gagal reset TTS",
+                                        e
+                                    )
+                                }
+                            }
                         }
 
-                        // =========================================
-                        // KIRIM PERSON KE OVERLAY
-                        // =========================================
 
-                        requireActivity().runOnUiThread {
+                        // =================================================
+                        // KIRIM PERSON KE OVERLAY
+                        //
+                        // Hanya class person
+                        // =================================================
+
+                        activity?.runOnUiThread {
 
                             try {
 
                                 (
-                                        requireActivity()
-                                                as MainActivity
+                                        activity as MainActivity
                                         ).updateDetections(
-                                        objectDetections
+                                        personDetections
                                     )
 
                             } catch (e: Exception) {
 
                                 Log.e(
                                     "SMARTGLASSES_OVERLAY",
-                                    "Gagal mengirim deteksi ke overlay",
+                                    "Gagal mengirim person ke overlay",
                                     e
                                 )
-                            }
-                        }
-
-
-                        // =========================================
-                        // FILTER PERSON DALAM ROI
-                        // =========================================
-
-                        val roiPersons =
-                            personDetections.filter { detection ->
-
-                                isInsideRoi(
-                                    detection
-                                )
-                            }
-
-
-                        Log.d(
-                            "SMARTGLASSES_ROI",
-                            "Jumlah person dalam ROI = " +
-                                    roiPersons.size
-                        )
-
-
-                        // =========================================
-                        // TIDAK ADA PERSON DALAM ROI
-                        // =========================================
-
-                        if (roiPersons.isEmpty()) {
-
-                            // -----------------------------------------
-                            // Bersihkan smoothing
-                            // -----------------------------------------
-
-                            distanceHistory.clear()
-
-
-                            Log.d(
-                                "SMARTGLASSES_OBSTACLE",
-                                "Tidak ada person dalam ROI"
-                            )
-
-
-                            // -----------------------------------------
-                            // Reset TTS
-                            // -----------------------------------------
-
-                            requireActivity()
-                                .runOnUiThread {
-
-                                    try {
-
-                                        (
-                                                requireActivity()
-                                                        as MainActivity
-                                                ).resetObstacleAnnouncement()
-
-                                    } catch (e: Exception) {
-
-                                        Log.e(
-                                            "SMARTGLASSES_TTS",
-                                            "Gagal reset status TTS",
-                                            e
-                                        )
-                                    }
-                                }
-
-
-                        } else {
-
-                            // =========================================
-                            // PILIH PERSON TERDEKAT
-                            // =========================================
-
-                            val nearestPerson = roiPersons
-                                .map { detection ->
-                                    val boxWidth = detection.x2 - detection.x1
-                                    val distance = estimatePersonDistance(boxWidth)
-
-                                    Log.d(
-                                        "SMARTGLASSES_DISTANCE_DEBUG",
-                                        String.format(
-                                            "CALCULATION: boxWidth=%.2f -> distance=%.2f",
-                                            boxWidth,
-                                            distance
-                                        )
-                                    )
-
-                                    Pair(detection, distance)
-                                }
-                                .minByOrNull { it.second }
-
-
-                            // =========================================
-                            // PERSON TERDEKAT ADA
-                            // =========================================
-
-                            if (nearestPerson != null) {
-
-                                val detection =
-                                    nearestPerson.first
-
-                                val rawDistance =
-                                    nearestPerson.second
-
-
-                                // =====================================
-                                // SMOOTHING
-                                // =====================================
-
-                                val smoothedDistance =
-                                    smoothDistance(
-                                        rawDistance
-                                    )
-
-
-                                // =====================================
-                                // STATUS OBSTACLE
-                                // =====================================
-
-                                val obstacleStatus =
-                                    getObstacleStatus(
-                                        smoothedDistance
-                                    )
-
-
-                                // =====================================
-                                // BOTTOM CENTER
-                                // =====================================
-
-                                val bottomCenterX =
-                                    (
-                                            detection.x1 +
-                                                    detection.x2
-                                            ) / 2f
-
-                                val bottomCenterY =
-                                    detection.y2
-
-
-                                // =====================================
-                                // DEBUG BOX
-                                // =====================================
-
-                                Log.d(
-                                    "SMARTGLASSES_DISTANCE_DEBUG",
-                                    String.format(
-                                        "Selected person: " +
-                                                "confidence=%.2f, " +
-                                                "x1=%.2f, " +
-                                                "y1=%.2f, " +
-                                                "x2=%.2f, " +
-                                                "y2=%.2f",
-                                        detection.confidence,
-                                        detection.x1,
-                                        detection.y1,
-                                        detection.x2,
-                                        detection.y2
-                                    )
-                                )
-
-
-
-
-                                // =====================================
-                                // DEBUG JARAK
-                                // =====================================
-
-                                Log.d(
-                                    "SMARTGLASSES_DISTANCE_DEBUG",
-                                    String.format(
-                                        "DISTANCE: " +
-                                                "raw=%.2f, " +
-                                                "smooth=%.2f",
-                                        rawDistance,
-                                        smoothedDistance
-                                    )
-                                )
-
-
-                                // =====================================
-                                // LOG PERSON
-                                // =====================================
-
-                                Log.d(
-                                    "SMARTGLASSES_PERSON",
-                                    String.format(
-                                        "Person dalam ROI: " +
-                                                "confidence=%.2f, " +
-                                                "bottomCenter=(%.2f, %.2f)",
-                                        detection.confidence,
-                                        bottomCenterX,
-                                        bottomCenterY
-                                    )
-                                )
-
-
-                                // =====================================
-                                // LOG JARAK
-                                // =====================================
-
-                                Log.d(
-                                    "SMARTGLASSES_DISTANCE",
-                                    String.format(
-                                        "Person dalam ROI: " +
-                                                "raw=%.2f meter, " +
-                                                "smooth=%.2f meter",
-                                        rawDistance,
-                                        smoothedDistance
-                                    )
-                                )
-
-
-                                // =====================================
-                                // LOG OBSTACLE
-                                // =====================================
-
-                                Log.d(
-                                    "SMARTGLASSES_OBSTACLE",
-                                    String.format(
-                                        "Person dalam ROI: " +
-                                                "jarak=%.2f meter, " +
-                                                "status=%s",
-                                        smoothedDistance,
-                                        obstacleStatus
-                                    )
-                                )
-
-
-                                // =====================================
-                                // TTS
-                                // =====================================
-
-                                requireActivity()
-                                    .runOnUiThread {
-
-                                        try {
-
-                                            (
-                                                    requireActivity()
-                                                            as MainActivity
-                                                    ).speakObstacle(
-                                                    smoothedDistance
-                                                )
-
-                                        } catch (e: Exception) {
-
-                                            Log.e(
-                                                "SMARTGLASSES_TTS",
-                                                "Gagal menjalankan TTS",
-                                                e
-                                            )
-                                        }
-                                    }
                             }
                         }
 
@@ -700,73 +395,15 @@ class CameraFragment : AusbcCameraFragment() {
 
                     } finally {
 
-                        // =========================================
-                        // SELESAI
-                        // =========================================
-
                         inferenceRunning = false
 
-
-                        // =========================================
-                        // HAPUS BITMAP
-                        // =========================================
-
-                        bitmap.recycle()
+                        if (!bitmap.isRecycled) {
+                            bitmap.recycle()
+                        }
                     }
                 }
             }
         }
-
-
-    // =========================================================
-    // SMOOTH DISTANCE
-    // =========================================================
-
-    private fun smoothDistance(
-        newDistance: Float
-    ): Float {
-
-        // =========================================
-        // Tambahkan nilai baru
-        // =========================================
-
-        distanceHistory.addLast(
-            newDistance
-        )
-
-
-        // =========================================
-        // Kalau lebih dari 3 nilai,
-        // hapus nilai paling lama
-        // =========================================
-
-        while (
-            distanceHistory.size >
-            distanceHistorySize
-        ) {
-
-            distanceHistory.removeFirst()
-        }
-
-
-        // =========================================
-        // Urutkan untuk mengambil median
-        // =========================================
-
-        val sortedValues =
-            distanceHistory
-                .toList()
-                .sorted()
-
-
-        // =========================================
-        // Median
-        // =========================================
-
-        return sortedValues[
-            sortedValues.size / 2
-        ]
-    }
 
 
     // =========================================================
@@ -796,13 +433,16 @@ class CameraFragment : AusbcCameraFragment() {
 
 
             yuvImage.compressToJpeg(
+
                 Rect(
                     0,
                     0,
                     width,
                     height
                 ),
+
                 90,
+
                 outputStream
             )
 
@@ -812,17 +452,24 @@ class CameraFragment : AusbcCameraFragment() {
 
 
             BitmapFactory.decodeByteArray(
+
                 jpegData,
+
                 0,
+
                 jpegData.size
             )
+
 
         } catch (e: Exception) {
 
             Log.e(
+
                 "SMARTGLASSES_BITMAP",
+
                 "Gagal convert NV21: " +
                         e.message,
+
                 e
             )
 
@@ -839,11 +486,13 @@ class CameraFragment : AusbcCameraFragment() {
         detection: Detection
     ): Boolean {
 
+        // Bottom-center bounding box
         val objectX =
             (
                     detection.x1 +
                             detection.x2
                     ) / 2f
+
 
         val objectY =
             detection.y2
@@ -855,104 +504,120 @@ class CameraFragment : AusbcCameraFragment() {
                 objectY <= roiBottom
     }
 
-
     // =========================================================
-    // ESTIMASI JARAK PERSON
-    //
-    // KALIBRASI TERBARU
-    //
-    // 1 m -> 46.91
-    // 2 m -> 111.85
-    // 3 m -> 135.22
-    // 4 m -> 145.02
-    // =========================================================
+// ESTIMASI JARAK PERSON
+//
+// Kalibrasi person yang sudah selesai:
+//
+// 1 meter -> 357.87 px
+// 2 meter -> 219.82 px
+// 3 meter -> 153.88 px
+// 4 meter -> 80.02 px
+//
+// Input:
+// boxWidth = lebar bounding box person
+//
+// Output:
+// perkiraan jarak dalam meter
+// =========================================================
 
     private fun estimatePersonDistance(
         boxWidth: Float
     ): Float {
 
-        // =========================================================
-        // KALIBRASI PERSON TERBARU
-        //
-        // 1 meter  -> 357.87 px
-        // 2 meter  -> 219.82 px
-        // 3 meter  -> 153.88 px
-        // 4 meter  -> 80.02 px
-        // =========================================================
+        // =====================================================
+        // DATA KALIBRASI
+        // =====================================================
 
         val w1m = 357.87f
         val w2m = 219.82f
         val w3m = 153.88f
-        val w4m = 80.02f
+        val w4m = 110.00f
 
 
-        // =========================================================
-        // SANGAT DEKAT / <= 1 METER
-        // =========================================================
+        // =====================================================
+        // <= 1 METER
+        //
+        // Kalau box lebih besar dari nilai 1 meter,
+        // anggap person berada pada 1 meter atau lebih dekat.
+        // =====================================================
 
         if (boxWidth >= w1m) {
+
             return 1.0f
         }
 
 
-        // =========================================================
+        // =====================================================
         // >= 4 METER
-        // =========================================================
+        //
+        // Kalau box lebih kecil dari nilai 4 meter,
+        // anggap person berada pada 4 meter atau lebih jauh.
+        // =====================================================
 
         if (boxWidth <= w4m) {
+
             return 4.0f
         }
 
 
-        // =========================================================
+        // =====================================================
         // 1 - 2 METER
-        // =========================================================
+        // =====================================================
 
         if (boxWidth >= w2m) {
 
             return interpolate(
-                boxWidth,
-                w1m,
-                1.0f,
-                w2m,
-                2.0f
+
+                value = boxWidth,
+
+                valueA = w1m,
+                distanceA = 1.0f,
+
+                valueB = w2m,
+                distanceB = 2.0f
             )
         }
 
 
-        // =========================================================
+        // =====================================================
         // 2 - 3 METER
-        // =========================================================
+        // =====================================================
 
         if (boxWidth >= w3m) {
 
             return interpolate(
-                boxWidth,
-                w2m,
-                2.0f,
-                w3m,
-                3.0f
+
+                value = boxWidth,
+
+                valueA = w2m,
+                distanceA = 2.0f,
+
+                valueB = w3m,
+                distanceB = 3.0f
             )
         }
 
 
-        // =========================================================
+        // =====================================================
         // 3 - 4 METER
-        // =========================================================
+        // =====================================================
 
         return interpolate(
-            boxWidth,
-            w3m,
-            3.0f,
-            w4m,
-            4.0f
+
+            value = boxWidth,
+
+            valueA = w3m,
+            distanceA = 3.0f,
+
+            valueB = w4m,
+            distanceB = 4.0f
         )
     }
 
-
     // =========================================================
-    // INTERPOLASI
-    // =========================================================
+// INTERPOLASI JARAK
+// =========================================================
 
     private fun interpolate(
         value: Float,
@@ -963,50 +628,12 @@ class CameraFragment : AusbcCameraFragment() {
     ): Float {
 
         val ratio =
-            (
-                    value - valueA
-                    ) /
-                    (
-                            valueB - valueA
-                            )
-
+            (value - valueA) /
+                    (valueB - valueA)
 
         return distanceA +
                 ratio *
-                (
-                        distanceB - distanceA
-                        )
-    }
-
-
-    // =========================================================
-    // STATUS OBSTACLE
-    // =========================================================
-
-    private fun getObstacleStatus(
-        distance: Float
-    ): String {
-
-        if (
-            distance.isNaN() ||
-            distance.isInfinite()
-        ) {
-            return "UNKNOWN"
-        }
-
-        if (distance <= 1.0f) {
-            return "DANGER"
-        }
-
-        if (distance <= 3.0f) {
-            return "WARNING"
-        }
-
-        if (distance <= 4.0f) {
-            return "FAR"
-        }
-
-        return "SAFE"
+                (distanceB - distanceA)
     }
 
 
@@ -1023,8 +650,11 @@ class CameraFragment : AusbcCameraFragment() {
 
             rootView =
                 inflater.inflate(
+
                     R.layout.fragment_camera,
+
                     container,
+
                     false
                 )
 
@@ -1136,6 +766,7 @@ class CameraFragment : AusbcCameraFragment() {
                 "YOLO siap digunakan"
             )
 
+
         } catch (e: Exception) {
 
             Log.e(
@@ -1207,9 +838,6 @@ class CameraFragment : AusbcCameraFragment() {
 
 
         inferenceExecutor.shutdown()
-
-
-        distanceHistory.clear()
 
 
         yoloDetector?.close()

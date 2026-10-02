@@ -17,7 +17,6 @@ class DetectionOverlayView @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
-
     // =========================================================
     // PAINT BOUNDING BOX
     // =========================================================
@@ -26,7 +25,6 @@ class DetectionOverlayView @JvmOverloads constructor(
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
 
             style = Paint.Style.STROKE
-
             strokeWidth = 8f
         }
 
@@ -87,8 +85,11 @@ class DetectionOverlayView @JvmOverloads constructor(
     // =========================================================
 
     private val roiLeft = 200f
+
     private val roiTop = 80f
+
     private val roiRight = 440f
+
     private val roiBottom = 480f
 
 
@@ -100,17 +101,55 @@ class DetectionOverlayView @JvmOverloads constructor(
         newDetections: List<Detection>
     ) {
 
-        detections =
-            newDetections
-
+        detections = newDetections
 
         Log.d(
             "SMARTGLASSES_OVERLAY",
             "Menerima ${detections.size} person"
         )
 
-
         postInvalidate()
+    }
+
+
+    // =========================================================
+    // GET CLASS NAME
+    // =========================================================
+
+    private fun getClassName(
+        classId: Int
+    ): String {
+
+        return when (classId) {
+
+            0 -> "person"
+
+            else -> "unknown"
+        }
+    }
+
+
+    // =========================================================
+    // CEK APAKAH DALAM ROI
+    // =========================================================
+
+    private fun isInsideRoi(
+        detection: Detection
+    ): Boolean {
+
+        val bottomCenterX =
+            (
+                    detection.x1 +
+                            detection.x2
+                    ) / 2f
+
+        val bottomCenterY =
+            detection.y2
+
+        return bottomCenterX >= roiLeft &&
+                bottomCenterX <= roiRight &&
+                bottomCenterY >= roiTop &&
+                bottomCenterY <= roiBottom
     }
 
 
@@ -127,8 +166,7 @@ class DetectionOverlayView @JvmOverloads constructor(
 
         Log.d(
             "SMARTGLASSES_OVERLAY",
-            "onDraw: " +
-                    "${detections.size} person, " +
+            "onDraw: ${detections.size} person, " +
                     "view=${width}x${height}"
         )
 
@@ -166,6 +204,7 @@ class DetectionOverlayView @JvmOverloads constructor(
 
         val roiRect =
             RectF(
+
                 offsetX +
                         roiLeft * scale,
 
@@ -187,7 +226,7 @@ class DetectionOverlayView @JvmOverloads constructor(
 
 
         // =====================================================
-        // KALAU TIDAK ADA PERSON
+        // TIDAK ADA PERSON
         // =====================================================
 
         if (detections.isEmpty()) {
@@ -201,127 +240,98 @@ class DetectionOverlayView @JvmOverloads constructor(
 
         for (detection in detections) {
 
-            // =====================================================
-            // NAMA OBJECT
-            // =====================================================
+            // =================================================
+            // HANYA PERSON
+            // classId 0
+            // =================================================
+
+            if (detection.classId != 0) {
+                continue
+            }
+
+
+            // =================================================
+            // CLASS NAME
+            // =================================================
 
             val className =
-                when (detection.classId) {
-
-                    0 -> "person"
-
-                    1 -> "bicycle"
-
-                    else -> "unknown"
-                }
+                getClassName(
+                    detection.classId
+                )
 
 
-            // =====================================================
-            // BOTTOM CENTER
-            // =====================================================
-
-            val bottomCenterX =
-                (
-                        detection.x1 +
-                                detection.x2
-                        ) / 2f
-
-            val bottomCenterY =
-                detection.y2
-
-
-            // =====================================================
+            // =================================================
             // CEK ROI
-            // =====================================================
+            // =================================================
 
             val insideRoi =
-                bottomCenterX >= roiLeft &&
-                        bottomCenterX <= roiRight &&
-                        bottomCenterY >= roiTop &&
-                        bottomCenterY <= roiBottom
+                isInsideRoi(
+                    detection
+                )
 
 
-            // =====================================================
+            // =================================================
             // WARNA BOX
             //
-            // PERSON:
-            //   dalam ROI  -> merah
-            //   luar ROI   -> hijau
-            //
-            // BICYCLE:
-            //   untuk sekarang -> biru
-            // =====================================================
+            // Dalam ROI  = merah
+            // Luar ROI   = hijau
+            // =================================================
 
             boxPaint.color =
-                when (detection.classId) {
+                if (insideRoi) {
 
-                    // ------------------------------
-                    // PERSON
-                    // ------------------------------
+                    Color.RED
 
-                    0 -> {
-                        if (insideRoi) {
-                            Color.RED
-                        } else {
-                            Color.GREEN
-                        }
-                    }
+                } else {
 
-
-                    // ------------------------------
-                    // BICYCLE
-                    // ------------------------------
-
-                    1 -> {
-                        Color.BLUE
-                    }
-
-
-                    else -> {
-                        Color.WHITE
-                    }
+                    Color.GREEN
                 }
 
 
-            // =====================================================
+            // =================================================
             // KOORDINAT BOX
-            // =====================================================
+            // =================================================
 
             val left =
                 offsetX +
                         detection.x1 * scale
 
+
             val top =
                 offsetY +
                         detection.y1 * scale
 
+
             val right =
                 offsetX +
                         detection.x2 * scale
+
 
             val bottom =
                 offsetY +
                         detection.y2 * scale
 
 
-            // =====================================================
+            // =================================================
             // GAMBAR BOX
-            // =====================================================
+            // =================================================
 
             canvas.drawRect(
+
                 RectF(
                     left,
                     top,
                     right,
                     bottom
                 ),
+
                 boxPaint
             )
 
 
-            // =====================================================
+            // =================================================
             // CONFIDENCE
-            // =====================================================
+            // =================================================
 
             val confidence =
                 (
@@ -330,32 +340,43 @@ class DetectionOverlayView @JvmOverloads constructor(
                         ).toInt()
 
 
-            // =====================================================
+            // =================================================
             // LABEL
-            // =====================================================
+            // =================================================
 
             val label =
                 "$className $confidence%"
 
 
+            // =================================================
+            // GAMBAR LABEL
+            // =================================================
+
             canvas.drawText(
+
                 label,
+
                 left,
+
                 maxOf(
                     top - 10f,
                     40f
                 ),
+
                 textPaint
             )
 
 
-            // =====================================================
-            // LOG
-            // =====================================================
+            // =================================================
+            // LOG OVERLAY
+            // =================================================
 
             Log.d(
+
                 "SMARTGLASSES_OVERLAY",
-                "Draw $className: " +
+
+                "Draw person: " +
+                        "confidence=$confidence%, " +
                         "ROI=$insideRoi, " +
                         "left=$left, " +
                         "top=$top, " +

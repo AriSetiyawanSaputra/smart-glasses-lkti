@@ -15,7 +15,7 @@ import com.example.smartglases.camera.CameraFragment
 import com.example.smartglases.camera.DetectionOverlayView
 
 import java.util.Locale
-
+import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
 
@@ -86,6 +86,7 @@ class MainActivity : AppCompatActivity() {
 
         // =====================================================
         // CAMERA PERMISSION
+        // =====================================================
         // =====================================================
 
         checkCameraPermission()
@@ -222,191 +223,86 @@ class MainActivity : AppCompatActivity() {
     // =========================================================
     // SPEAK OBSTACLE
     //
-    // Sistem menggunakan 3 zona:
+    // Sistem menggunakan 2 zona peringatan:
     //
-    // > 3 m  = diam
-    // <= 3 m = "Ada orang di depan."
-    // <= 2 m = "Orang 2 meter."
-    // <= 1 m = "Hati-hati, orang 1 meter."
+    // > 4 m  = diam
+    // <= 4 m = "Objek di depan 4 meter"
+    // <= 1 m = "Awas objek sangat dekat"
     //
-    // Suara hanya keluar ketika zona berubah.
+    // Suara hanya keluar ketika zona berubah (1x peringatan).
+    // =========================================================
+
+    // =========================================================
+    // SPEAK OBSTACLE (DENGAN TRANSLASI NAMA OBJEK)
     // =========================================================
 
     fun speakObstacle(
+        classId: Int,
         distance: Float
     ) {
-
-        // =====================================================
-        // TTS BELUM SIAP
-        // =====================================================
-
-        if (!ttsReady) {
+        // 1. Cek kesiapan TTS dan validitas angka jarak
+        if (!ttsReady || distance.isNaN() || distance.isInfinite()) {
             return
         }
 
-
-        // =====================================================
-        // JARAK TIDAK VALID
-        // =====================================================
-
-        if (
-            distance.isNaN() ||
-            distance.isInfinite()
-        ) {
-
-            return
+        // 2. Tentukan zona (1 = Kritis <=1m, 4 = Peringatan Dini <=4m)
+        val zone = when {
+            distance <= 1.0f -> 1
+            distance <= 4.0f -> 4
+            else -> 0
         }
 
-
-        // =====================================================
-        // TENTUKAN ZONA
-        // =====================================================
-
-        val currentZone =
-            when {
-
-                // ---------------------------------------------
-                // 1 METER
-                // ---------------------------------------------
-
-                distance <= 1.0f -> {
-                    1
-                }
-
-
-                // ---------------------------------------------
-                // 2 METER
-                // ---------------------------------------------
-
-                distance <= 2.0f -> {
-                    2
-                }
-
-
-                // ---------------------------------------------
-                // 3 METER
-                // ---------------------------------------------
-
-                distance <= 3.0f -> {
-                    3
-                }
-
-
-                // ---------------------------------------------
-                // LEBIH DARI 3 METER
-                // ---------------------------------------------
-
-                else -> {
-                    0
-                }
-            }
-
-
-        // =====================================================
-        // > 3 METER
-        //
-        // TIDAK ADA SUARA
-        // =====================================================
-
-        if (currentZone == 0) {
-
+        // Objek lebih dari 4 meter -> reset memori zona
+        if (zone == 0) {
             lastSpokenDistanceZone = null
-
             return
         }
 
-
-        // =====================================================
-        // ZONA MASIH SAMA
-        //
-        // Jangan bicara lagi.
-        // =====================================================
-
-        if (
-            currentZone ==
-            lastSpokenDistanceZone
-        ) {
-
+        // Jangan ulangi peringatan pada zona yang sama
+        if (lastSpokenDistanceZone == zone) {
             return
         }
 
+        // 3. Mapping ID kelas COCO ke Bahasa Indonesia
+        val spokenClassName = when (classId) {
+            0 -> "orang"
+            1 -> "sepeda"
+            2 -> "mobil"
+            3 -> "motor"
+            4 -> "pesawat"
+            5 -> "bus"
+            6 -> "kereta"
+            7 -> "truk"
+            13 -> "bangku"
+            56 -> "kursi"
+            57 -> "sofa"
+            60 -> "meja"
+            else -> "objek"
+        }
 
-        // =====================================================
-        // SIMPAN ZONA TERBARU
-        // =====================================================
+        // 4. Pembulatan jarak ke meter terdekat (contoh: 2.3m -> 2 meter)
+        val distanceMeter = distance.roundToInt()
 
-        lastSpokenDistanceZone =
-            currentZone
+        // 5. Format pesan suara dinamis
+        val message = when (zone) {
+            4 -> "$spokenClassName di depan $distanceMeter meter"
+            1 -> "Awas $spokenClassName sangat dekat"
+            else -> return
+        }
 
+        Log.d("SMARTGLASSES_TTS", "Zona=$zone, Jarak=$distanceMeter m, Pesan=$message")
 
-        // =====================================================
-        // PESAN TTS
-        // =====================================================
-
-        val message =
-            when (currentZone) {
-
-                // ---------------------------------------------
-                // 1 METER
-                // ---------------------------------------------
-
-                1 -> {
-                    "Hati-hati, orang 1 meter."
-                }
-
-
-                // ---------------------------------------------
-                // 2 METER
-                // ---------------------------------------------
-
-                2 -> {
-                    "Orang 2 meter."
-                }
-
-
-                // ---------------------------------------------
-                // 3 METER
-                // ---------------------------------------------
-
-                3 -> {
-                    "Ada orang di depan."
-                }
-
-
-                else -> {
-                    return
-                }
-            }
-
-
-        // =====================================================
-        // LOG
-        // =====================================================
-
-        Log.d(
-            "SMARTGLASSES_TTS",
-            "Zona=$currentZone, " +
-                    "jarak=%.2f, " +
-                    "pesan=$message".format(
-                        Locale.US,
-                        distance
-                    )
-        )
-
-
-        // =====================================================
-        // SPEAK
-        // =====================================================
-
+        // 6. Eksekusi suara TTS
         textToSpeech?.speak(
             message,
             TextToSpeech.QUEUE_FLUSH,
             null,
-            "smartglasses_obstacle_$currentZone"
+            "smartglasses_obstacle_$zone"
         )
+
+        // 7. Simpan zona yang baru disuarakan
+        lastSpokenDistanceZone = zone
     }
-
-
     // =========================================================
     // RESET TTS
     //
