@@ -232,6 +232,612 @@ class CameraFragment : AusbcCameraFragment() {
                                         confidenceThreshold
                             }
 
+                        val bicycleDetections = detections.filter {
+                            it.classId == 1 &&
+                                    it.confidence >= confidenceThreshold
+                        }
+
+                        // =========================================================
+// MOTOR
+// classId 3 = motor
+// =========================================================
+
+                        val motorDetections = detections.filter {
+                            it.classId == 3 &&
+                                    it.confidence >= confidenceThreshold
+                        }
+
+                        // =========================================================
+// POTTED PLANT
+// classId 58 = potted plant
+// =========================================================
+
+                        val pottedPlantDetections = detections.filter {
+                            it.classId == 58 &&
+                                    it.confidence >= confidenceThreshold
+                        }
+
+                        // =========================================================
+// KALIBRASI POTTED PLANT
+//
+// Hanya potted plant yang masuk ROI
+// Pilih confidence tertinggi
+// =========================================================
+
+                        val calibrationPottedPlant =
+                            pottedPlantDetections
+                                .filter { detection ->
+                                    isInsideRoi(detection)
+                                }
+                                .maxByOrNull { detection ->
+                                    detection.confidence
+                                }
+
+
+// =========================================================
+// LOG KALIBRASI POTTED PLANT
+// =========================================================
+
+                        if (calibrationPottedPlant != null) {
+
+                            val detection =
+                                calibrationPottedPlant
+
+                            val boxWidth =
+                                detection.x2 - detection.x1
+
+                            val boxHeight =
+                                detection.y2 - detection.y1
+
+                            val centerX =
+                                (detection.x1 + detection.x2) / 2f
+
+                            val centerY =
+                                (detection.y1 + detection.y2) / 2f
+
+                            val bottomCenterX =
+                                centerX
+
+                            val bottomCenterY =
+                                detection.y2
+
+                            val insideRoi =
+                                isInsideRoi(detection)
+
+
+                            Log.d(
+                                "SMARTGLASSES_POTTED_PLANT_CALIBRATION",
+                                String.format(
+                                    "PottedPlant: " +
+                                            "classId=%d, " +
+                                            "confidence=%.2f, " +
+                                            "x1=%.2f, " +
+                                            "y1=%.2f, " +
+                                            "x2=%.2f, " +
+                                            "y2=%.2f, " +
+                                            "width=%.2f, " +
+                                            "height=%.2f, " +
+                                            "center=(%.2f, %.2f), " +
+                                            "bottomCenter=(%.2f, %.2f), " +
+                                            "insideROI=%s",
+
+                                    detection.classId,
+                                    detection.confidence,
+
+                                    detection.x1,
+                                    detection.y1,
+
+                                    detection.x2,
+                                    detection.y2,
+
+                                    boxWidth,
+                                    boxHeight,
+
+                                    centerX,
+                                    centerY,
+
+                                    bottomCenterX,
+                                    bottomCenterY,
+
+                                    insideRoi
+                                )
+                            )
+
+                        } else {
+
+                            Log.d(
+                                "SMARTGLASSES_POTTED_PLANT_CALIBRATION",
+                                "PottedPlant: tidak ada potted plant dalam ROI"
+                            )
+                        }
+
+                        val calibrationBicycle = bicycleDetections
+                            .filter { detection ->
+                                val objectX = (detection.x1 + detection.x2) / 2f
+                                val objectY = detection.y2
+
+                                objectX >= roiLeft &&
+                                        objectX <= roiRight &&
+                                        objectY >= roiTop &&
+                                        objectY <= roiBottom
+                            }
+                            .maxByOrNull { it.confidence }
+
+                        // =========================================================
+// CHAIR
+// classId 56 = chair
+// =========================================================
+
+                        val chairDetections =
+                            detections.filter { detection ->
+
+                                detection.classId == 56 &&
+                                        detection.confidence >=
+                                        confidenceThreshold
+                            }
+
+
+
+                        // =========================================================
+
+// KALIBRASI CHAIR
+//
+// Hanya chair yang masuk ROI
+// Pilih confidence tertinggi
+// =========================================================
+
+                        val calibrationChair =
+                            chairDetections
+                                .filter { detection ->
+                                    isInsideRoi(detection)
+                                }
+                                .maxByOrNull { detection ->
+                                    detection.confidence
+                                }
+// =========================================================
+// TTS OBJEK RENDAH
+//
+// Chair + Bicycle
+// Hanya objek yang berada dalam ROI
+// =========================================================
+
+                        val lowObjectDetections =
+                            (
+                                    chairDetections +
+                                            bicycleDetections +
+                                            motorDetections +
+                                            pottedPlantDetections
+                                    ).filter { detection ->
+                                    isInsideRoi(detection)
+                                }
+
+
+
+// =========================================================
+// PILIH OBJEK DENGAN CONFIDENCE TERTINGGI
+// =========================================================
+
+                        val calibrationLowObject =
+                            lowObjectDetections
+                                .maxByOrNull { detection ->
+                                    detection.confidence
+                                }
+
+
+// =========================================================
+// TTS OBJEK RENDAH
+// =========================================================
+
+                        if (calibrationLowObject != null) {
+
+                            val detection =
+                                calibrationLowObject
+
+                            val boxWidth =
+                                detection.x2 - detection.x1
+
+
+                            // =====================================================
+                            // ESTIMASI JARAK SESUAI CLASS
+                            // =====================================================
+
+                            val distance =
+                                when (detection.classId) {
+
+                                    // Person (0)
+                                    0 -> estimatePersonDistance(boxWidth)
+
+                                    // Chair (56)
+                                    56 -> estimateChairDistance(boxWidth)
+
+                                    // Motor (3)
+                                    3 -> estimateMotorDistance(boxWidth)
+
+                                    // Potted Plant (58)
+                                    58 -> estimatePottedPlantDistance(boxWidth)
+
+                                    // Bicycle (1)
+                                    1 -> estimateBicycleDistance(boxWidth)
+
+                                    else -> 5.0f
+                                }
+
+
+// =========================================================
+// LOG DATA KALIBRASI (TERMASUK PERSON)
+// =========================================================
+                            when (detection.classId) {
+                                0 -> Log.d(
+                                    "TEST_PERSON_DISTANCE",
+                                    String.format("Person -> BoxWidth: %.2f px | Estimasi: %.2f meter", boxWidth, distance)
+                                )
+                                56 -> Log.d(
+                                    "TEST_CHAIR_DISTANCE",
+                                    String.format("Chair -> BoxWidth: %.2f px | Estimasi: %.2f meter", boxWidth, distance)
+                                )
+                                3 -> Log.d(
+                                    "TEST_MOTOR_DISTANCE",
+                                    String.format("Motor -> BoxWidth: %.2f px | Estimasi: %.2f meter", boxWidth, distance)
+                                )
+                                1 -> Log.d(
+                                    "TEST_BICYCLE_DISTANCE",
+                                    String.format("Bicycle -> BoxWidth: %.2f px | Estimasi: %.2f meter", boxWidth, distance)
+                                )
+                                58 -> Log.d(
+                                    "TEST_PLANT_DISTANCE",
+                                    String.format("Plant -> BoxWidth: %.2f px | Estimasi: %.2f meter", boxWidth, distance)
+                                )
+                            }
+
+                            // =========================================================
+// TARUH LOG KHUSUS CHAIR DI SINI
+// =========================================================
+                            if (detection.classId == 56) {
+                                Log.d(
+                                    "TEST_CHAIR_DISTANCE",
+                                    String.format("Chair -> BoxWidth: %.2f px | Estimasi: %.2f meter", boxWidth, distance)
+                                )
+                            }
+
+
+                            // =====================================================
+                            // LOG JARAK
+                            // =====================================================
+
+                            Log.d(
+                                "SMARTGLASSES_LOW_OBJECT_DISTANCE",
+                                String.format(
+                                    "classId=%d, width=%.2f px, distance=%.2f meter",
+                                    detection.classId,
+                                    boxWidth,
+                                    distance
+                                )
+                            )
+
+
+                            // =====================================================
+                            // TTS
+                            // =====================================================
+
+                            requireActivity().runOnUiThread {
+
+                                try {
+
+                                    (
+                                            requireActivity() as MainActivity
+                                            ).speakLowObject(
+                                            detection.classId,
+                                            distance
+                                        )
+
+                                } catch (e: Exception) {
+
+                                    Log.e(
+                                        "SMARTGLASSES_TTS_LOW_OBJECT",
+                                        "Gagal menjalankan TTS objek rendah",
+                                        e
+                                    )
+                                }
+                            }
+
+                        } else {
+
+                            // =====================================================
+                            // TIDAK ADA CHAIR / BICYCLE DALAM ROI
+                            // =====================================================
+
+                            Log.d(
+                                "SMARTGLASSES_LOW_OBJECT_DISTANCE",
+                                "Tidak ada objek rendah dalam ROI"
+                            )
+
+
+                            requireActivity().runOnUiThread {
+
+                                try {
+
+                                    (
+                                            requireActivity() as MainActivity
+                                            ).resetLowObjectAnnouncement()
+
+                                } catch (e: Exception) {
+
+                                    Log.e(
+                                        "SMARTGLASSES_TTS_LOW_OBJECT",
+                                        "Gagal reset TTS objek rendah",
+                                        e
+                                    )
+                                }
+                            }
+                        }
+
+
+// =========================================================
+// KALIBRASI MOTOR
+//
+// Hanya motor yang masuk ROI
+// Pilih confidence tertinggi
+// =========================================================
+
+                        val calibrationMotor =
+                            motorDetections
+                                .filter { detection ->
+                                    isInsideRoi(detection)
+                                }
+                                .maxByOrNull { detection ->
+                                    detection.confidence
+                                }
+
+
+// =========================================================
+// LOG KALIBRASI MOTOR
+// =========================================================
+
+                        if (calibrationMotor != null) {
+
+                            val detection =
+                                calibrationMotor
+
+                            val boxWidth =
+                                detection.x2 - detection.x1
+
+                            val boxHeight =
+                                detection.y2 - detection.y1
+
+                            val centerX =
+                                (detection.x1 + detection.x2) / 2f
+
+                            val centerY =
+                                (detection.y1 + detection.y2) / 2f
+
+                            val bottomCenterX =
+                                centerX
+
+                            val bottomCenterY =
+                                detection.y2
+
+                            val insideRoi =
+                                isInsideRoi(detection)
+
+
+                            Log.d(
+                                "SMARTGLASSES_MOTOR_CALIBRATION",
+                                String.format(
+                                    "Motor: " +
+                                            "classId=%d, " +
+                                            "confidence=%.2f, " +
+                                            "x1=%.2f, " +
+                                            "y1=%.2f, " +
+                                            "x2=%.2f, " +
+                                            "y2=%.2f, " +
+                                            "width=%.2f, " +
+                                            "height=%.2f, " +
+                                            "center=(%.2f, %.2f), " +
+                                            "bottomCenter=(%.2f, %.2f), " +
+                                            "insideROI=%s",
+
+                                    detection.classId,
+                                    detection.confidence,
+
+                                    detection.x1,
+                                    detection.y1,
+
+                                    detection.x2,
+                                    detection.y2,
+
+                                    boxWidth,
+                                    boxHeight,
+
+                                    centerX,
+                                    centerY,
+
+                                    bottomCenterX,
+                                    bottomCenterY,
+
+                                    insideRoi
+                                )
+                            )
+
+                        } else {
+
+                            Log.d(
+                                "SMARTGLASSES_MOTOR_CALIBRATION",
+                                "Motor: tidak ada motor dalam ROI"
+                            )
+                        }
+
+// =========================================================
+// LOG KALIBRASI CHAIR
+// =========================================================
+
+                        if (calibrationChair != null) {
+
+                            val detection =
+                                calibrationChair
+
+                            val boxWidth =
+                                detection.x2 - detection.x1
+
+                            val boxHeight =
+                                detection.y2 - detection.y1
+
+                            val centerX =
+                                (
+                                        detection.x1 +
+                                                detection.x2
+                                        ) / 2f
+
+                            val centerY =
+                                (
+                                        detection.y1 +
+                                                detection.y2
+                                        ) / 2f
+
+                            val bottomCenterX =
+                                centerX
+
+                            val bottomCenterY =
+                                detection.y2
+
+                            val insideRoi =
+                                bottomCenterX >= roiLeft &&
+                                        bottomCenterX <= roiRight &&
+                                        bottomCenterY >= roiTop &&
+                                        bottomCenterY <= roiBottom
+
+
+                            Log.d(
+                                "SMARTGLASSES_CHAIR_CALIBRATION",
+                                String.format(
+                                    "Chair: " +
+                                            "classId=%d, " +
+                                            "confidence=%.2f, " +
+                                            "x1=%.2f, " +
+                                            "y1=%.2f, " +
+                                            "x2=%.2f, " +
+                                            "y2=%.2f, " +
+                                            "width=%.2f, " +
+                                            "height=%.2f, " +
+                                            "center=(%.2f, %.2f), " +
+                                            "bottomCenter=(%.2f, %.2f), " +
+                                            "insideROI=%s",
+
+                                    detection.classId,
+                                    detection.confidence,
+
+                                    detection.x1,
+                                    detection.y1,
+
+                                    detection.x2,
+                                    detection.y2,
+
+                                    boxWidth,
+                                    boxHeight,
+
+                                    centerX,
+                                    centerY,
+
+                                    bottomCenterX,
+                                    bottomCenterY,
+
+                                    insideRoi
+                                )
+                            )
+
+                        } else {
+
+                            Log.d(
+                                "SMARTGLASSES_CHAIR_CALIBRATION",
+                                "Chair: tidak ada chair dalam ROI"
+                            )
+                        }
+
+                        // =========================================================
+// KALIBRASI PERSON
+// classId 0 = person
+// =========================================================
+
+                        for (detection in personDetections) {
+
+                            // Lebar bounding box
+                            val boxWidth =
+                                detection.x2 - detection.x1
+
+                            // Tinggi bounding box
+                            val boxHeight =
+                                detection.y2 - detection.y1
+
+                            // Center bounding box
+                            val centerX =
+                                (
+                                        detection.x1 +
+                                                detection.x2
+                                        ) / 2f
+
+                            val centerY =
+                                (
+                                        detection.y1 +
+                                                detection.y2
+                                        ) / 2f
+
+                            // Bottom-center untuk cek ROI
+                            val bottomCenterX =
+                                centerX
+
+                            val bottomCenterY =
+                                detection.y2
+
+                            // Cek apakah person masuk ROI
+                            val insideRoi =
+                                bottomCenterX >= roiLeft &&
+                                        bottomCenterX <= roiRight &&
+                                        bottomCenterY >= roiTop &&
+                                        bottomCenterY <= roiBottom
+
+                            // =====================================================
+                            // LOG SEMUA DATA PERSON
+                            // =====================================================
+
+                            Log.d(
+                                "SMARTGLASSES_PERSON_CALIBRATION",
+                                String.format(
+                                    "Person: " +
+                                            "classId=%d, " +
+                                            "confidence=%.2f, " +
+                                            "x1=%.2f, " +
+                                            "y1=%.2f, " +
+                                            "x2=%.2f, " +
+                                            "y2=%.2f, " +
+                                            "width=%.2f, " +
+                                            "height=%.2f, " +
+                                            "center=(%.2f, %.2f), " +
+                                            "bottomCenter=(%.2f, %.2f), " +
+                                            "insideROI=%s",
+
+                                    detection.classId,
+
+                                    detection.confidence,
+
+                                    detection.x1,
+                                    detection.y1,
+
+                                    detection.x2,
+                                    detection.y2,
+
+                                    boxWidth,
+                                    boxHeight,
+
+                                    centerX,
+                                    centerY,
+
+                                    bottomCenterX,
+                                    bottomCenterY,
+
+                                    insideRoi
+                                )
+                            )
+                        }
+
 
                         Log.d(
                             "SMARTGLASSES_PERSON",
@@ -276,6 +882,7 @@ class CameraFragment : AusbcCameraFragment() {
 
                             // Hitung jarak menggunakan
                             // hasil kalibrasi person yang sudah ada
+
                             val distance =
                                 estimatePersonDistance(boxWidth)
 
@@ -357,12 +964,23 @@ class CameraFragment : AusbcCameraFragment() {
                             }
                         }
 
+// =========================================================
+// DETEKSI UNTUK OVERLAY
+//
+// person + chair
+// =========================================================
 
-                        // =================================================
-                        // KIRIM PERSON KE OVERLAY
-                        //
-                        // Hanya class person
-                        // =================================================
+                        val objectDetections =
+                            personDetections +
+                                    chairDetections +
+                                    bicycleDetections +
+                                    motorDetections +
+                                    pottedPlantDetections
+
+
+// =========================================================
+// KIRIM DETEKSI KE OVERLAY
+// =========================================================
 
                         activity?.runOnUiThread {
 
@@ -371,18 +989,19 @@ class CameraFragment : AusbcCameraFragment() {
                                 (
                                         activity as MainActivity
                                         ).updateDetections(
-                                        personDetections
+                                        objectDetections
                                     )
 
                             } catch (e: Exception) {
 
                                 Log.e(
                                     "SMARTGLASSES_OVERLAY",
-                                    "Gagal mengirim person ke overlay",
+                                    "Gagal mengirim deteksi ke overlay",
                                     e
                                 )
                             }
                         }
+
 
 
                     } catch (e: Exception) {
@@ -506,113 +1125,31 @@ class CameraFragment : AusbcCameraFragment() {
 
     // =========================================================
 // ESTIMASI JARAK PERSON
-//
-// Kalibrasi person yang sudah selesai:
-//
-// 1 meter -> 357.87 px
-// 2 meter -> 219.82 px
-// 3 meter -> 153.88 px
-// 4 meter -> 80.02 px
-//
-// Input:
-// boxWidth = lebar bounding box person
-//
-// Output:
-// perkiraan jarak dalam meter
 // =========================================================
 
-    private fun estimatePersonDistance(
-        boxWidth: Float
-    ): Float {
+    private fun estimatePersonDistance(boxWidth: Float): Float {
+        val w1m = 341.13f
+        val w2m = 220.75f
+        val w3m = 136.47f
+        val w4m = 100.85f
 
-        // =====================================================
-        // DATA KALIBRASI
-        // =====================================================
+        if (boxWidth >= w1m) return 1.0f
 
-        val w1m = 357.87f
-        val w2m = 219.82f
-        val w3m = 153.88f
-        val w4m = 110.00f
-
-
-        // =====================================================
-        // <= 1 METER
-        //
-        // Kalau box lebih besar dari nilai 1 meter,
-        // anggap person berada pada 1 meter atau lebih dekat.
-        // =====================================================
-
-        if (boxWidth >= w1m) {
-
-            return 1.0f
+        // UBAH DARI 4.0f MENJADI 5.0f
+        // Jika boxWidth < w4m, objek berada di jarak > 4 meter
+        if (boxWidth < w4m) {
+            return 5.0f
         }
-
-
-        // =====================================================
-        // >= 4 METER
-        //
-        // Kalau box lebih kecil dari nilai 4 meter,
-        // anggap person berada pada 4 meter atau lebih jauh.
-        // =====================================================
-
-        if (boxWidth <= w4m) {
-
-            return 4.0f
-        }
-
-
-        // =====================================================
-        // 1 - 2 METER
-        // =====================================================
 
         if (boxWidth >= w2m) {
-
-            return interpolate(
-
-                value = boxWidth,
-
-                valueA = w1m,
-                distanceA = 1.0f,
-
-                valueB = w2m,
-                distanceB = 2.0f
-            )
+            return interpolate(boxWidth, w1m, 1.0f, w2m, 2.0f)
         }
-
-
-        // =====================================================
-        // 2 - 3 METER
-        // =====================================================
 
         if (boxWidth >= w3m) {
-
-            return interpolate(
-
-                value = boxWidth,
-
-                valueA = w2m,
-                distanceA = 2.0f,
-
-                valueB = w3m,
-                distanceB = 3.0f
-            )
+            return interpolate(boxWidth, w2m, 2.0f, w3m, 3.0f)
         }
 
-
-        // =====================================================
-        // 3 - 4 METER
-        // =====================================================
-
-        return interpolate(
-
-            value = boxWidth,
-
-            valueA = w3m,
-            distanceA = 3.0f,
-
-            valueB = w4m,
-            distanceB = 4.0f
-        )
+        return interpolate(boxWidth, w3m, 3.0f, w4m, 4.0f)
     }
 
     // =========================================================
@@ -636,6 +1173,166 @@ class CameraFragment : AusbcCameraFragment() {
                 (distanceB - distanceA)
     }
 
+// =========================================================
+// ESTIMASI JARAK CHAIR
+//
+// Kalibrasi chair:
+//
+// 2 meter -> 255.53 px
+// 3 meter -> 175.52 px
+// 4 meter -> 150.33 px
+//
+// Belum ada data 1 meter.
+// Untuk sementara:
+// width >= 255.53 px
+// dianggap berada di bawah 2 meter.
+// =========================================================
+
+    private fun estimateChairDistance(boxWidth: Float): Float {
+        val w2m = 213.00f
+        val w3m = 150.33f
+        val w4m = 115.00f
+
+        // Jika lebar box melampaui kalibrasi 2 meter (<= 2.0m)
+        if (boxWidth >= w2m) {
+            val distance = 1.9f // Mengembalikan 1.9f agar langsung memicu Zone 1 (sangat dekat)
+            Log.d(
+                "TEST_CHAIR_DISTANCE",
+                "Chair -> BoxWidth: %.2f px | Estimasi: %.2f meter".format(boxWidth, distance)
+            )
+            return distance
+        }
+
+        if (boxWidth < w4m) {
+            val distance = 5.0f
+            Log.d(
+                "TEST_CHAIR_DISTANCE",
+                "Chair -> BoxWidth: %.2f px | Estimasi: %.2f meter".format(boxWidth, distance)
+            )
+            return distance
+        }
+
+        if (boxWidth >= w3m) {
+            val distance = interpolate(boxWidth, w2m, 2.0f, w3m, 3.0f)
+            Log.d(
+                "TEST_CHAIR_DISTANCE",
+                "Chair -> BoxWidth: %.2f px | Estimasi: %.2f meter".format(boxWidth, distance)
+            )
+            return distance
+        }
+
+        val distance = interpolate(boxWidth, w3m, 3.0f, w4m, 4.0f)
+        Log.d(
+            "TEST_CHAIR_DISTANCE",
+            "Chair -> BoxWidth: %.2f px | Estimasi: %.2f meter".format(boxWidth, distance)
+        )
+        return distance
+    }
+
+// =========================================================
+// ESTIMASI JARAK BICYCLE
+//
+// Kalibrasi bicycle:
+//
+// 2 meter -> 618.26 px
+// 3 meter -> 460.02 px
+// 4 meter -> 368.14 px
+//
+// Belum ada data 1 meter.
+//
+// Untuk sementara:
+// width >= 618.26 px
+// dianggap berada di bawah 2 meter.
+// =========================================================
+
+    private fun estimateBicycleDistance(boxWidth: Float): Float {
+        val w2m = 618.26f
+        val w3m = 460.02f
+        val w4m = 368.14f
+
+        if (boxWidth >= w2m) return 1.9f
+
+        // UBAH DARI 4.0f MENJADI 5.0f
+        if (boxWidth < w4m) {
+            return 5.0f
+        }
+
+        if (boxWidth >= w3m) {
+            return interpolate(boxWidth, w2m, 2.0f, w3m, 3.0f)
+        }
+
+        return interpolate(boxWidth, w3m, 3.0f, w4m, 4.0f)
+    }
+
+    // =========================================================
+// ESTIMASI JARAK MOTOR
+//
+// Kalibrasi motor:
+//
+// 2 meter -> 636.57 px
+// 3 meter -> 515.65 px
+// 4 meter -> 410.39 px
+//
+// Belum ada data 1 meter.
+//
+// Untuk sementara:
+// width >= 636.57 px
+// dianggap berada di bawah 2 meter.
+// =========================================================
+
+    private fun estimateMotorDistance(boxWidth: Float): Float {
+        val w2m = 636.57f
+        val w3m = 515.65f
+        val w4m = 410.39f
+
+        if (boxWidth >= w2m) return 1.9f
+
+        // UBAH DARI 4.0f MENJADI 5.0f
+        if (boxWidth < w4m) {
+            return 5.0f
+        }
+
+        if (boxWidth >= w3m) {
+            return interpolate(boxWidth, w2m, 2.0f, w3m, 3.0f)
+        }
+
+        return interpolate(boxWidth, w3m, 3.0f, w4m, 4.0f)
+    }
+
+    // =========================================================
+// ESTIMASI JARAK POTTED PLANT
+//
+// Kalibrasi potted plant:
+//
+// 2 meter -> 243.73 px
+// 3 meter -> 146.87 px
+// 4 meter -> 116.80 px
+//
+// Belum ada data 1 meter.
+//
+// Untuk sementara:
+// width >= 243.73 px
+// dianggap berada di bawah 2 meter.
+// =========================================================
+
+    private fun estimatePottedPlantDistance(boxWidth: Float): Float {
+        val w2m = 243.73f
+        val w3m = 146.87f
+        val w4m = 116.80f
+
+        if (boxWidth >= w2m) return 1.9f
+
+        // UBAH DARI 4.0f MENJADI 5.0f
+        if (boxWidth < w4m) {
+            return 5.0f
+        }
+
+        if (boxWidth >= w3m) {
+            return interpolate(boxWidth, w2m, 2.0f, w3m, 3.0f)
+        }
+
+        return interpolate(boxWidth, w3m, 3.0f, w4m, 4.0f)
+    }
 
     // =========================================================
     // ROOT VIEW
@@ -674,6 +1371,7 @@ class CameraFragment : AusbcCameraFragment() {
 
         return rootView
     }
+
 
 
     // =========================================================

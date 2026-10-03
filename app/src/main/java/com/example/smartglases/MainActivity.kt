@@ -52,7 +52,15 @@ class MainActivity : AppCompatActivity() {
     // =========================================================
 
     private var lastSpokenDistanceZone: Int? = null
+// =========================================================
+// TTS OBJEK RENDAH
+//
+// 0 = belum ada peringatan
+// 1 = sudah peringatan sangat dekat
+// 2 = sudah peringatan jarak 2-4 meter
+// =========================================================
 
+    private var lastLowObjectWarningZone: Int? = null
 
     // =========================================================
     // ON CREATE
@@ -267,16 +275,9 @@ class MainActivity : AppCompatActivity() {
         val spokenClassName = when (classId) {
             0 -> "orang"
             1 -> "sepeda"
-            2 -> "mobil"
             3 -> "motor"
-            4 -> "pesawat"
-            5 -> "bus"
-            6 -> "kereta"
-            7 -> "truk"
-            13 -> "bangku"
             56 -> "kursi"
-            57 -> "sofa"
-            60 -> "meja"
+            58 -> "tanaman"
             else -> "objek"
         }
 
@@ -302,6 +303,114 @@ class MainActivity : AppCompatActivity() {
 
         // 7. Simpan zona yang baru disuarakan
         lastSpokenDistanceZone = zone
+    }
+
+    // =========================================================
+// SPEAK LOW OBJECT
+//
+// Khusus objek rendah seperti chair.
+//
+// 2 - 4 meter:
+// "Kursi di depan X meter"
+// hanya 1x
+//
+// < 2 meter:
+// "Awas kursi sangat dekat"
+// hanya 1x
+//
+// > 4 meter / objek hilang:
+// reset
+// =========================================================
+
+    // =========================================================
+// SPEAK LOW OBJECT (DIPERBAIKI)
+// =========================================================
+
+    fun speakLowObject(
+        classId: Int,
+        distance: Float
+    ) {
+        if (!ttsReady || distance.isNaN() || distance.isInfinite()) {
+            return
+        }
+
+        val spokenClassName = when (classId) {
+            1 -> "sepeda"
+            3 -> "motor"
+            56 -> "kursi"
+            58 -> "tanaman"
+            else -> "objek"
+        }
+
+        // =========================================================
+        // SKEMA 2 ZONA UNTUK OBJEK RENDAH:
+        // Zone 1 (<= 2.0m) : "Awas [objek] sangat dekat" (Deep Warning)
+        // Zone 2 (2.1m - 4.0m) : "[objek] di depan X meter" (Pertama Kali Muncul)
+        // Zone 0 (> 4.0m) : Diam / Reset
+        // =========================================================
+        val zone = when {
+            distance <= 2.0f -> 1
+            distance <= 4.0f -> 2
+            else -> 0
+        }
+
+        if (zone == 0) {
+            lastLowObjectWarningZone = null
+            return
+        }
+
+        // Mencegah pengulangan ucapan pada zona yang sama
+        if (lastLowObjectWarningZone == zone) {
+            return
+        }
+
+        val message = when (zone) {
+            // Peringatan saat pertama kali objek masuk jangkauan (2.1m - 4.0m)
+            2 -> {
+                val distanceMeter = distance.roundToInt().coerceIn(2, 4)
+                "$spokenClassName di depan $distanceMeter meter"
+            }
+
+            // Peringatan deep saat menyentuh jarak 2 meter ke bawah
+            1 -> {
+                "Awas $spokenClassName sangat dekat"
+            }
+
+            else -> return
+        }
+
+        Log.d(
+            "SMARTGLASSES_TTS_LOW_OBJECT",
+            "Zona=$zone, classId=$classId, distance=%.2f, message=$message".format(distance)
+        )
+
+        textToSpeech?.speak(
+            message,
+            TextToSpeech.QUEUE_FLUSH,
+            null,
+            "smartglasses_low_object_$zone"
+        )
+
+        lastLowObjectWarningZone = zone
+    }
+
+    // =========================================================
+// RESET TTS LOW OBJECT
+// =========================================================
+
+    fun resetLowObjectAnnouncement() {
+
+        if (
+            lastLowObjectWarningZone != null
+        ) {
+
+            Log.d(
+                "SMARTGLASSES_TTS_LOW_OBJECT",
+                "Reset zona TTS objek rendah"
+            )
+        }
+
+        lastLowObjectWarningZone = null
     }
     // =========================================================
     // RESET TTS

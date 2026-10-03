@@ -124,6 +124,14 @@ class DetectionOverlayView @JvmOverloads constructor(
 
             0 -> "person"
 
+            1 -> "bicycle"
+
+            3 -> "motor"
+
+            56 -> "chair"
+
+            58 -> "potted plant"
+
             else -> "unknown"
         }
     }
@@ -245,7 +253,13 @@ class DetectionOverlayView @JvmOverloads constructor(
             // classId 0
             // =================================================
 
-            if (detection.classId != 0) {
+            if (
+                detection.classId != 0 &&
+                detection.classId != 1 &&
+                detection.classId != 3 &&
+                detection.classId != 56 &&
+                detection.classId != 58
+            ) {
                 continue
             }
 
@@ -278,13 +292,40 @@ class DetectionOverlayView @JvmOverloads constructor(
             // =================================================
 
             boxPaint.color =
-                if (insideRoi) {
+                when (detection.classId) {
 
-                    Color.RED
+                    // Person
+                    0 -> {
+                        if (insideRoi) {
+                            Color.RED
+                        } else {
+                            Color.GREEN
+                        }
+                    }
 
-                } else {
+                    // Bicycle
+                    1 -> {
+                        Color.YELLOW
+                    }
 
-                    Color.GREEN
+                    // Motor
+                    3 -> {
+                        Color.MAGENTA
+                    }
+
+                    // Chair
+                    56 -> {
+                        Color.BLUE
+                    }
+
+                    // Potted Plant
+                    58 -> {
+                        Color.CYAN
+                    }
+
+                    else -> {
+                        Color.WHITE
+                    }
                 }
 
 
