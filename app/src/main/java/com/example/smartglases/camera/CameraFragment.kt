@@ -148,6 +148,9 @@ class CameraFragment : AusbcCameraFragment() {
                     return
                 }
 
+                // Di dalam onPreviewData(...)
+                val startTime = System.currentTimeMillis()
+
 
                 // =================================================
                 // NV21 -> BITMAP
@@ -210,7 +213,33 @@ class CameraFragment : AusbcCameraFragment() {
 
                         val detections =
                             detector.detect(bitmap)
+// =========================================================
+// LOG SEMUA OBJEK TERDETEKSI & STATUS ROI
+// =========================================================
+                        for (detection in detections) {
+                            if (detection.confidence >= confidenceThreshold) {
+                                val className = when (detection.classId) {
+                                    0 -> "Person"
+                                    1 -> "Bicycle"
+                                    3 -> "Motor"
+                                    56 -> "Chair"
+                                    58 -> "Potted Plant"
+                                    else -> "Class ${detection.classId}"
+                                }
+                                val insideRoi = isInsideRoi(detection)
 
+                                Log.d(
+                                    "TEST_ROI_DETECTION",
+                                    String.format(
+                                        "Objek: %-12s | ID: %2d | Conf: %.2f | Inside ROI: %b",
+                                        className,
+                                        detection.classId,
+                                        detection.confidence,
+                                        insideRoi
+                                    )
+                                )
+                            }
+                        }
 
                         Log.d(
                             "SMARTGLASSES_AI",
@@ -403,7 +432,8 @@ class CameraFragment : AusbcCameraFragment() {
 
                         val lowObjectDetections =
                             (
-                                    chairDetections +
+                                    personDetections +
+                                            chairDetections +
                                             bicycleDetections +
                                             motorDetections +
                                             pottedPlantDetections
@@ -464,7 +494,7 @@ class CameraFragment : AusbcCameraFragment() {
 
 
 // =========================================================
-// LOG DATA KALIBRASI (TERMASUK PERSON)
+// LOG DATA KALIBRASI SEMUA OBJEK
 // =========================================================
                             when (detection.classId) {
                                 0 -> Log.d(
@@ -519,6 +549,10 @@ class CameraFragment : AusbcCameraFragment() {
                             // TTS
                             // =====================================================
 
+                            // =====================================================
+// TTS
+// =====================================================
+
                             requireActivity().runOnUiThread {
 
                                 try {
@@ -527,7 +561,8 @@ class CameraFragment : AusbcCameraFragment() {
                                             requireActivity() as MainActivity
                                             ).speakLowObject(
                                             detection.classId,
-                                            distance
+                                            distance,
+                                            startTime // <-- Tambahkan startTime di sini agar sesuai dengan MainActivity
                                         )
 
                                 } catch (e: Exception) {
@@ -1190,8 +1225,8 @@ class CameraFragment : AusbcCameraFragment() {
 
     private fun estimateChairDistance(boxWidth: Float): Float {
         val w2m = 213.00f
-        val w3m = 150.33f
-        val w4m = 115.00f
+        val w3m = 181.50f  // Diperbarui dari 150.33f
+        val w4m = 133.00f  // Diperbarui dari 115.00f
 
         // Jika lebar box melampaui kalibrasi 2 meter (<= 2.0m)
         if (boxWidth >= w2m) {

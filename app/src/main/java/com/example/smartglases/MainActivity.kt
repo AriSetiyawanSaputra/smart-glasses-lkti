@@ -191,6 +191,31 @@ class MainActivity : AppCompatActivity() {
 
                     ttsReady = true
 
+                    // =================================================
+                    // TAMBAHKAN UTTERANCE PROGRESS LISTENER DI SINI (LANGKAH 6)
+                    // =================================================
+                    textToSpeech?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                        override fun onStart(utteranceId: String?) {
+                            // Dipanggil tepat saat suara TTS mulai bersuara di speaker
+                            if (utteranceId?.startsWith("smartglasses_low_object_") == true || utteranceId?.startsWith("smartglasses_obstacle_") == true) {
+                                val endTime = System.currentTimeMillis()
+                                val totalLatency = endTime - latencyStartTime
+
+                                Log.d(
+                                    "TEST_SYSTEM_LATENCY",
+                                    "Waktu Respon (Frame ke Suara): $totalLatency ms (Utterance: $utteranceId)"
+                                )
+                            }
+                        }
+
+                        override fun onDone(utteranceId: String?) {
+                            // Selesai diucapkan
+                        }
+
+                        override fun onError(utteranceId: String?) {
+                            // Terjadi error
+                        }
+                    })
 
                     // =================================================
                     // KECEPATAN BICARA
@@ -326,10 +351,17 @@ class MainActivity : AppCompatActivity() {
 // SPEAK LOW OBJECT (DIPERBAIKI)
 // =========================================================
 
+    // Variabel global di dalam MainActivity untuk menyimpan waktu awal frame
+    private var latencyStartTime: Long = 0L
+
     fun speakLowObject(
         classId: Int,
-        distance: Float
+        distance: Float,
+        startTime: Long // Parameter baru dari CameraFragment
     ) {
+        // Simpan timestamp awal ke variabel global
+        latencyStartTime = startTime
+
         if (!ttsReady || distance.isNaN() || distance.isInfinite()) {
             return
         }
@@ -342,12 +374,6 @@ class MainActivity : AppCompatActivity() {
             else -> "objek"
         }
 
-        // =========================================================
-        // SKEMA 2 ZONA UNTUK OBJEK RENDAH:
-        // Zone 1 (<= 2.0m) : "Awas [objek] sangat dekat" (Deep Warning)
-        // Zone 2 (2.1m - 4.0m) : "[objek] di depan X meter" (Pertama Kali Muncul)
-        // Zone 0 (> 4.0m) : Diam / Reset
-        // =========================================================
         val zone = when {
             distance <= 2.0f -> 1
             distance <= 4.0f -> 2
@@ -359,36 +385,26 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Mencegah pengulangan ucapan pada zona yang sama
         if (lastLowObjectWarningZone == zone) {
             return
         }
 
         val message = when (zone) {
-            // Peringatan saat pertama kali objek masuk jangkauan (2.1m - 4.0m)
             2 -> {
                 val distanceMeter = distance.roundToInt().coerceIn(2, 4)
                 "$spokenClassName di depan $distanceMeter meter"
             }
-
-            // Peringatan deep saat menyentuh jarak 2 meter ke bawah
             1 -> {
                 "Awas $spokenClassName sangat dekat"
             }
-
             else -> return
         }
-
-        Log.d(
-            "SMARTGLASSES_TTS_LOW_OBJECT",
-            "Zona=$zone, classId=$classId, distance=%.2f, message=$message".format(distance)
-        )
 
         textToSpeech?.speak(
             message,
             TextToSpeech.QUEUE_FLUSH,
             null,
-            "smartglasses_low_object_$zone"
+            "smartglasses_low_object_$zone" // Utterance ID untuk identifikasi suara
         )
 
         lastLowObjectWarningZone = zone
@@ -460,6 +476,7 @@ class MainActivity : AppCompatActivity() {
             )
         }
     }
+
 
 
     // =========================================================
